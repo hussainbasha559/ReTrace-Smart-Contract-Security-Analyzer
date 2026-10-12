@@ -29,23 +29,37 @@ from app.deps import SAFE_METHODS
 settings = get_settings()
 log = logging.getLogger("retrace")
 
-FRONTEND_ORIGIN = "https://re-trace-smart-contract-security-an.vercel.app"
+# Production frontend URL
+FRONTEND_ORIGIN = (
+    "https://re-trace-smart-contract-security-an.vercel.app"
+)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Run startup and shutdown tasks."""
+
     if settings.secret_key_is_ephemeral:
         log.warning(
-            "RETRACE_SECRET_KEY is not set (or shorter than 32 chars): "
-            "using a random per-process key. Sessions will not survive a restart."
+            "RETRACE_SECRET_KEY is not set or is shorter than 32 "
+            "characters. A random per-process key is being used. "
+            "Sessions will not survive a restart."
         )
 
     if settings.database_url:
-        from app.services.scan_service import recover_stale_scans
+        try:
+            from app.services.scan_service import recover_stale_scans
 
-        n = recover_stale_scans()
-        if n:
-            log.warning("Marked %s interrupted scan(s) as FAILED.", n)
+            count = recover_stale_scans()
+
+            if count:
+                log.warning(
+                    "Marked %s interrupted scan(s) as FAILED.",
+                    count,
+                )
+        except Exception:
+            # Do not silently hide database startup failures.
+            log.exception("Failed to recover stale scans.")
 
     yield
 
@@ -63,48 +77,20 @@ app = FastAPI(
 )
 
 
-@app.get("/health", tags=["Health"])
-async def health_check():
-    return {"status": "ok", "service": "ReTrace backend"}
+# ---------------------------------------------------------
+# CORS CONFIGURATION
+# ---------------------------------------------------------
 
-
-@app.get("/health/db", tags=["Health"])
-def health_db():
-    """Cheap database connectivity probe (no details leaked on failure)."""
-    from sqlalchemy import text
-    from app.db import get_engine
-
-    try:
-        with get_engine().connect() as conn:
-            conn.execute(text("select 1"))
-    except Exception:
-        log.exception("Database health check failed")
-        return JSONResponse(status_code=503, content={"status": "error", "database": "unreachable"})
-    return {"status": "ok", "database": "reachable"}
-
-
-# CORS: allow the deployed frontend and configured development origins.
 configured_origins = list(settings.cors_origins)
+
 allowed_origins = list(
-    dict.fromkeys(configured_origins + [FRONTEND_ORIGIN])
+    dict.fromkeys(
+        configured_origins + [FRONTEND_ORIGIN]
+    )
 )
 
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=allowed_origins,
-#     allow_credentials=True,
-#     allow_methods=[
-#         "GET",
-#         "POST",
-#         "PATCH",
-#         "DELETE",
-#         "OPTIONS",
-#     ],
-#     allow_headers=[
-#         "Content-Type",
-#         "X-CSRF-Token",
-#     ],
-# )
+# Temporary diagnostic log. Remove after confirming deployment.
+log.warning("Effective CORS origins: %s", allowed_origins)
 
 app.add_middleware(
     CORSMiddleware,
@@ -115,7 +101,59 @@ app.add_middleware(
 )
 
 
-def _denied(status: int, code: str, message: str) -> JSONResponse:
+# ---------------------------------------------------------
+# HEALTH ENDPOINTS
+# ---------------------------------------------------------
+
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """Check whether the backend is running."""
+
+    return {
+        "status": "ok",
+        "service": "ReTrace backend",
+    }
+
+
+@app.get("/health/db", tags=["Health"])
+def health_db():
+    """Check database connectivity without exposing credentials."""
+
+    from sqlalchemy import text
+    from app.db import get_engine
+
+    try:
+        with get_engine().connect() as connection:
+            connection.execute(text("SELECT 1"))
+
+    except Exception:
+        log.exception("Database health check failed")
+
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "error",
+                "database": "unreachable",
+            },
+        )
+
+    return {
+        "status": "ok",
+        "database": "reachable",
+    }
+
+
+# ---------------------------------------------------------
+# ERROR RESPONSE HELPER
+# ---------------------------------------------------------
+
+def _denied(
+    status: int,
+    code: str,
+    message: str,
+) -> JSONResponse:
+    """Return a consistent security error response."""
+
     return JSONResponse(
         status_code=status,
         content={
@@ -127,20 +165,27 @@ def _denied(status: int, code: str, message: str) -> JSONResponse:
     )
 
 
+# ---------------------------------------------------------
+# REQUEST SECURITY MIDDLEWARE
+# ---------------------------------------------------------
+
 @app.middleware("http")
 async def guard(request: Request, call_next):
+    """Apply request-size and origin security checks."""
+
     request.state.request_id = str(uuid.uuid4())
 
-    length = request.headers.get("content-length")
+    content_length = request.headers.get("content-length")
+
+    max_body_size = max(
+        settings.max_request_body_bytes,
+        settings.max_upload_bytes + 8192,
+    )
 
     if (
-        length
-        and length.isdigit()
-        and int(length)
-        > max(
-            settings.max_request_body_bytes,
-            settings.max_upload_bytes + 8192,
-        )
+        content_length
+        and content_length.isdigit()
+        and int(content_length) > max_body_size
     ):
         return _denied(
             413,
@@ -148,35 +193,63 @@ async def guard(request: Request, call_next):
             "Request body is too large.",
         )
 
-    # Keep the existing origin/CSRF security check.
+    # Enforce origin checks for unsafe methods.
+    # CORS preflight OPTIONS requests are safe and are handled
+    # by CORSMiddleware.
     if request.method not in SAFE_METHODS:
         origin = request.headers.get("origin")
 
-        if (
-            origin
-            and origin not in allowed_origins
-            and urlparse(origin).netloc != request.headers.get("host")
-        ):
-            return _denied(
-                403,
-                "bad_origin",
-                "Cross-origin request blocked.",
+        if origin:
+            request_origin = urlparse(origin)
+            request_host = request.headers.get("host", "")
+
+            same_host = (
+                request_origin.netloc.lower()
+                == request_host.lower()
             )
+
+            if origin not in allowed_origins and not same_host:
+                return _denied(
+                    403,
+                    "bad_origin",
+                    "Cross-origin request blocked.",
+                )
 
     response = await call_next(request)
 
-    response.headers["X-Request-ID"] = request.state.request_id
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    # Add security and diagnostic headers.
+    response.headers["X-Request-ID"] = (
+        request.state.request_id
+    )
+
+    response.headers.setdefault(
+        "X-Content-Type-Options",
+        "nosniff",
+    )
+
+    response.headers.setdefault(
+        "X-Frame-Options",
+        "DENY",
+    )
+
+    response.headers.setdefault(
+        "Referrer-Policy",
+        "no-referrer",
+    )
 
     if request.url.path.startswith("/api/"):
-        response.headers.setdefault("Cache-Control", "no-store")
+        response.headers.setdefault(
+            "Cache-Control",
+            "no-store",
+        )
 
     return response
 
 
-# Register existing API routers.
+# ---------------------------------------------------------
+# API ROUTER REGISTRATION
+# ---------------------------------------------------------
+
 for route_router in (
     router,
     auth_routes.router,
