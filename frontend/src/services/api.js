@@ -5,7 +5,7 @@
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ??
-  (import.meta.env.DEV ? "" : "https://smart-contract-analysis-retrace.onrender.com");
+  (import.meta.env.DEV ? "" : "https://retrace-smart-contract-security-analyzer.onrender.com");
 
 export class ApiError extends Error {
   constructor(message, code, fields, status) {
