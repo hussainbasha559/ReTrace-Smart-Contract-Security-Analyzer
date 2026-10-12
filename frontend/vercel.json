@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://smart-contract-analysis-retrace.onrender.com/api/:path*" },
+    { "source": "/api/:path*", "destination": "https://retrace-smart-contract-security-analyzer.onrender.com/api/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
