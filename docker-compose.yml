@@ -1,0 +1,17 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "127.0.0.1:8000:8000"     # bound to localhost only
+    environment:
+      RETRACE_MAX_CONCURRENT: "2"
+      RETRACE_MYTHRIL_TIMEOUT_S: "90"
+    mem_limit: 2g
+    cpus: 2
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

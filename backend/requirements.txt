@@ -1,0 +1,23 @@
+# Core backend. Mythril and Heimdall are external tools and are NOT pinned here:
+#   Mythril : pip install mythril   (heavy; best installed in its own venv or the Docker image)
+#   Heimdall: see README.md
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+python-multipart>=0.0.9      # file uploads
+email-validator>=2.1         # registration email validation
+
+# Database (PostgreSQL / Supabase)
+sqlalchemy>=2.0
+psycopg[binary]>=3.2,<4
+alembic>=1.13
+python-dotenv>=1.0
+
+# Security
+argon2-cffi>=23.1            # Argon2id password hashing
+
+# AI provider calls
+httpx>=0.27
+
+# Testing
+pytest>=8.0
