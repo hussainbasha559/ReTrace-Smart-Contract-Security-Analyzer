@@ -29,7 +29,7 @@ from app.deps import SAFE_METHODS
 settings = get_settings()
 log = logging.getLogger("retrace")
 
-FRONTEND_ORIGIN = "https://smart-contract-analysis-re-trace.vercel.app"
+FRONTEND_ORIGIN = "https://re-trace-smart-contract-security-an.vercel.app"
 
 
 @asynccontextmanager
