@@ -139,6 +139,7 @@ def get_settings() -> Settings:
         secret_key=secret,
         secret_key_is_ephemeral=ephemeral,
         cookie_secure=_bool("RETRACE_COOKIE_SECURE", False),
+        cookie_samesite=os.environ.get("RETRACE_COOKIE_SAMESITE", "lax").strip().lower(),
         session_ttl_hours=_int("RETRACE_SESSION_TTL_HOURS", 12),
         session_idle_minutes=_int("RETRACE_SESSION_IDLE_MINUTES", 120),
         storage_dir=os.environ.get("RETRACE_STORAGE_DIR", str(_BACKEND_DIR / "storage")),
