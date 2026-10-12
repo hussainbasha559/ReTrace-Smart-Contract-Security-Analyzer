@@ -89,21 +89,29 @@ allowed_origins = list(
     dict.fromkeys(configured_origins + [FRONTEND_ORIGIN])
 )
 
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=allowed_origins,
+#     allow_credentials=True,
+#     allow_methods=[
+#         "GET",
+#         "POST",
+#         "PATCH",
+#         "DELETE",
+#         "OPTIONS",
+#     ],
+#     allow_headers=[
+#         "Content-Type",
+#         "X-CSRF-Token",
+#     ],
+# )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=[
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE",
-        "OPTIONS",
-    ],
-    allow_headers=[
-        "Content-Type",
-        "X-CSRF-Token",
-    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
